@@ -26,6 +26,7 @@ class RunConfiguration(zconf.RunConfig):
     hf_pretrained_model_name_or_path = zconf.attr(type=str, required=True)
     model_weights_path = zconf.attr(type=str, default=None)
     model_cache_path = zconf.attr(type=str, default=None)
+    model_pt_name = zconf.attr(type=str, default=None)
 
     # === Task parameters === #
     tasks = zconf.attr(type=str, default=None)
@@ -125,11 +126,12 @@ def run_simple(args: RunConfiguration, with_continue: bool = False):
                 )
 
         # === Step 2: Download models === #
-        if not os.path.exists(os.path.join(model_cache_path, hf_config.model_type)):
+        model_pt_name = args.model_pt_name
+        if not os.path.exists(os.path.join(model_cache_path, model_pt_name)):
             print("Downloading model")
             export_model.export_model(
                 hf_pretrained_model_name_or_path=args.hf_pretrained_model_name_or_path,
-                output_base_path=os.path.join(model_cache_path, hf_config.model_type),
+                output_base_path=os.path.join(model_cache_path, model_pt_name),
             )
 
         # === Step 3: Tokenize and cache === #
@@ -142,7 +144,7 @@ def run_simple(args: RunConfiguration, with_continue: bool = False):
             phases_to_do = []
             for phase, phase_task_list in phase_task_dict.items():
                 if task_name in phase_task_list and not os.path.exists(
-                    os.path.join(args.exp_dir, "cache", hf_config.model_type, task_name, phase)
+                    os.path.join(args.exp_dir, "cache", model_pt_name, task_name, phase)
                 ):
                     phases_to_do.append(phase)
             if not phases_to_do:
@@ -152,7 +154,7 @@ def run_simple(args: RunConfiguration, with_continue: bool = False):
                 tokenize_and_cache.RunConfiguration(
                     task_config_path=task_config_path_dict[task_name],
                     hf_pretrained_model_name_or_path=args.hf_pretrained_model_name_or_path,
-                    output_dir=os.path.join(args.exp_dir, "cache", hf_config.model_type, task_name),
+                    output_dir=os.path.join(args.exp_dir, "cache", model_pt_name, task_name),
                     phases=phases_to_do,
                     # TODO: Need a strategy for task-specific max_seq_length issues (issue #1176)
                     max_seq_length=args.max_seq_length,
@@ -166,7 +168,7 @@ def run_simple(args: RunConfiguration, with_continue: bool = False):
     # number of moving parts.
     jiant_task_container_config = configurator.SimpleAPIMultiTaskConfigurator(
         task_config_base_path=os.path.join(args.data_dir, "configs"),
-        task_cache_base_path=os.path.join(args.exp_dir, "cache", hf_config.model_type),
+        task_cache_base_path=os.path.join(args.exp_dir, "cache", model_pt_name),
         train_task_name_list=args.train_tasks,
         val_task_name_list=args.val_tasks,
         test_task_name_list=args.test_tasks,
@@ -192,9 +194,8 @@ def run_simple(args: RunConfiguration, with_continue: bool = False):
             model_load_mode = "from_transformers_with_mlm"
         else:
             model_load_mode = "from_transformers"
-        model_weights_path = os.path.join(
-            model_cache_path, hf_config.model_type, "model", "model.p"
-        )
+        model_weights_path = os.path.join(model_cache_path, model_pt_name, "model", "model.p")
+    print(f"Loading model from {model_weights_path}")
     run_output_dir = os.path.join(args.exp_dir, "runs", args.run_name)
 
     if (
@@ -215,7 +216,10 @@ def run_simple(args: RunConfiguration, with_continue: bool = False):
             hf_pretrained_model_name_or_path=args.hf_pretrained_model_name_or_path,
             model_path=model_weights_path,
             model_config_path=os.path.join(
-                model_cache_path, hf_config.model_type, "model", "config.json",
+                model_cache_path,
+                model_pt_name,
+                "model",
+                "config.json",
             ),
             model_load_mode=model_load_mode,
             # === Running Setup === #
